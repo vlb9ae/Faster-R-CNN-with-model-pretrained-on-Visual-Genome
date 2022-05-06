@@ -1,8 +1,8 @@
 cython
 cffi
-opencv-python
+opencv
 scipy
-msgpack
+msgpack-python
 easydict
 matplotlib
 pyyaml

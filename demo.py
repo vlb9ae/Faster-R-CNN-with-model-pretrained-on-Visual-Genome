@@ -367,4 +367,5 @@ if __name__ == '__main__':
                   bbox=dict(facecolor='blue', alpha=0.5),
                   fontsize=10, color='white')
   plt.show()
+  plt.savefig('demo_outputs/'+args.image_file[:-4]+'_detection_results_demo.png')
   print ('boxes=%d' % (len(keep_boxes)))

@@ -55,7 +55,7 @@ except NameError:
 csv.field_size_limit(sys.maxsize)
 
 
-FIELDNAMES = ['image_id', 'image_w','image_h','num_boxes', 'boxes', 'features']
+FIELDNAMES = ['image_id', 'image_w','image_h','num_boxes', 'boxes', 'features', 'labels']
 
 # Settings for the number of features per image. To re-create pretrained features with 36 features
 # per image, set both values to 36.
@@ -128,6 +128,8 @@ def _get_image_blob(im):
       in the image pyramid
   """
   im_orig = im.astype(np.float32, copy=True)
+  # print('im_orig shape', im_orig.shape)
+  # print('pix means shape', cfg.PIXEL_MEANS.shape)
   im_orig -= cfg.PIXEL_MEANS
 
   im_shape = im_orig.shape
@@ -176,8 +178,15 @@ def load_image_ids(split_name):
           image_id = int(item['image_id'])
           filepath = os.path.join('/data/visualgenome/', item['url'].split('rak248/')[-1])
           split.append((filepath,image_id))
+    elif split_name == 'winoground':
+        for image_name in os.listdir('/data3/scratch/layne/WinoGroundPics/'):
+            chunks = image_name.split('_')
+            image_id = int(chunks[1]+chunks[3][:-4])
+            filepath = os.path.join('/data3/scratch/layne/WinoGroundPics/', image_name)
+            split.append((filepath,image_id))
     else:
       print ('Unknown split')
+    # print('Split created! First 5 items:', split[:5])
     return split
 
 def get_detections_from_im(fasterRCNN, classes, im_file, image_id, args, conf_thresh=0.2):
@@ -217,7 +226,8 @@ def get_detections_from_im(fasterRCNN, classes, im_file, image_id, args, conf_th
 
     #load images
     # im = cv2.imread(im_file)
-    im_in = np.array(imread(im_file))
+    im_in = np.array(imread(im_file, pilmode='RGB'))
+    # print('shape of imread output', im_in.shape)
     if len(im_in.shape) == 2:
       im_in = im_in[:,:,np.newaxis]
       im_in = np.concatenate((im_in,im_in,im_in), axis=2)
@@ -248,6 +258,14 @@ def get_detections_from_im(fasterRCNN, classes, im_file, image_id, args, conf_th
     rpn_loss_cls, rpn_loss_box, \
     RCNN_loss_cls, RCNN_loss_bbox, \
     rois_label, pooled_feat = fasterRCNN(im_data, im_info, gt_boxes, num_boxes, pool_feat = True)
+
+    # print("Are ROIs Label anything?", rois_label)
+    # print('What about cls_prob?', cls_prob.shape)
+    # print('Classes?', len(classes))
+    # print('How many boxes?', num_boxes)
+
+    labels_assigned = torch.argmax(cls_prob,dim=1)
+    # print('labels_assigned', labels_assigned.shape, labels_assigned)
 
     scores = cls_prob.data
     boxes = rois.data[:, :, 1:5]
@@ -281,7 +299,10 @@ def get_detections_from_im(fasterRCNN, classes, im_file, image_id, args, conf_th
         # Simply repeat the boxes, once for each class
         pred_boxes = np.tile(boxes, (1, scores.shape[1]))
 
+    # print('Scaling by:', im_scales[0])
+    # print('Unscaled boxes (shape, max, min, all)', pred_boxes.shape, torch.max(pred_boxes), torch.min(pred_boxes), pred_boxes)
     pred_boxes /= im_scales[0]
+    # print('Scaled boxes (shape, max, min, all)', pred_boxes.shape, torch.max(pred_boxes), torch.min(pred_boxes), pred_boxes)
 
     scores = scores.squeeze()
     pred_boxes = pred_boxes.squeeze()
@@ -328,13 +349,26 @@ def get_detections_from_im(fasterRCNN, classes, im_file, image_id, args, conf_th
     elif len(keep_boxes) > MAX_BOXES:
         keep_boxes = torch.argsort(max_conf, descending = True)[:MAX_BOXES]
 
+    # print('keep_boxes', keep_boxes.shape, keep_boxes)
+
+    kept_labels = labels_assigned.squeeze()[keep_boxes]
+    # print('kept_labels', kept_labels.shape, kept_labels)
+    to_words = [classes[l] for l in kept_labels]
+    # print('to_words', to_words)
+
     objects = torch.argmax(scores[keep_boxes][:,1:], dim=1)
     box_dets = np.zeros((len(keep_boxes), 4))
     boxes = pred_boxes[keep_boxes]
+    new_labels = []
     for i in range(len(keep_boxes)):
         kind = objects[i]+1
         bbox = boxes[i, kind * 4: (kind + 1) * 4]
+        cls = classes[objects[i]+1]
+        # print('Found class cls', cls)
+        new_labels.append(cls)
         box_dets[i] = np.array(bbox.cpu())
+
+    # print('new_labels', new_labels)
 
     return {
         'image_id': image_id,
@@ -342,7 +376,8 @@ def get_detections_from_im(fasterRCNN, classes, im_file, image_id, args, conf_th
         'image_w': np.size(im, 1),
         'num_boxes': len(keep_boxes),
         'boxes': base64.b64encode(box_dets),
-        'features': base64.b64encode((pooled_feat[keep_boxes].cpu()).detach().numpy())
+        'features': base64.b64encode((pooled_feat[keep_boxes].cpu()).detach().numpy()),
+        'labels':new_labels
     }
 
 def load_model(args):
@@ -449,7 +484,9 @@ if __name__ == '__main__':
     print('Called with args:')
     print(args)
 
-    # image_ids = load_image_ids(args.data_split)
-    image_ids = [['images/img1.jpg', 0], ['images/img2.jpg', 1]]
+    if args.data_split != 'karpathy_train':
+        image_ids = load_image_ids(args.data_split)
+    else:
+        image_ids = [['images/img1.jpg', 0], ['images/img2.jpg', 1], ['images/img3.jpg', 2], ['images/img4.jpg', 3], ['images/cocokitty_unsegmented.jpg', 4], ['images/cocochihuahua_unsegmented.jpg', 5], ['images/cocoflowers_unsegmented.jpg', 6]]
 
     generate_tsv(args.outfile, image_ids, args)
