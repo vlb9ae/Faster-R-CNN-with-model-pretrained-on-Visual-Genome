@@ -184,6 +184,12 @@ def load_image_ids(split_name):
             image_id = int(chunks[1]+chunks[3][:-4])
             filepath = os.path.join('/data3/scratch/layne/WinoGroundPics/', image_name)
             split.append((filepath,image_id))
+    elif split_name == 'places_val':
+        data = json.load('/saltpool0/data/layneberry/PlacesAudio_400K_distro/metadata/val.json')
+        for i in range(len(data['data'])):
+            image_id = i
+            filepath = os.path.join('/saltpool0/data/layneberry/PlacesAudio_400K_distro/images/', data['data'][i]['image'])
+            split.append((filepath,image_id))
     else:
       print ('Unknown split')
     # print('Split created! First 5 items:', split[:5])
